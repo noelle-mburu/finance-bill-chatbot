@@ -180,29 +180,58 @@ Answer:"""
     # Step 8: Create the LLM chain — links the prompt template to the LLM
     chain = LLMChain(llm=llm, prompt=prompt)
 
-    return retriever, chain
+    # Step 9: Create a question-rewriting chain
+    # Follow-ups like "why?" mean nothing on their own, so before searching
+    # we ask the LLM to turn them into a complete, standalone question
+    rewrite_prompt = PromptTemplate(
+        input_variables=["chat_history", "question"],
+        template="""Given the conversation below and a follow-up question,
+rewrite the follow-up as a complete, standalone question about the Kenya Finance Bill 2025.
+If it is already a complete question, return it unchanged.
+Return ONLY the rewritten question, nothing else.
+
+Conversation:
+{chat_history}
+
+Follow-up question: {question}
+
+Standalone question:"""
+    )
+    rewrite_chain = LLMChain(llm=llm, prompt=rewrite_prompt)
+
+    return retriever, chain, rewrite_chain
 
 
-def get_answer(question, retriever, chain, chat_history):
+def get_answer(question, retriever, chain, rewrite_chain, chat_history):
     """
-    Given a question, retrieve relevant chunks from the PDF,
-    build a prompt with conversation history, and return the LLM's answer.
+    Given a question, rewrite it into a standalone question (if there is
+    chat history), retrieve relevant chunks from the PDF, and return the answer.
     """
-    # Find the most relevant chunks for this question
-    retrieved_docs = retriever.invoke(question)
-
-    # Combine all retrieved chunks into one context string
-    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-
     # Format conversation history so the LLM knows what was discussed before
     past_conversation = "\n".join(
         [f"{m['role'].capitalize()}: {m['content']}" for m in chat_history]
     ) if chat_history else "No previous conversation."
 
+    # Rewrite follow-ups like "why?" into a complete question before searching
+    # If there's no history, the question is already standalone
+    if chat_history:
+        search_question = rewrite_chain.invoke({
+            "chat_history": past_conversation,
+            "question": question
+        })["text"].strip()
+    else:
+        search_question = question
+
+    # Find the most relevant chunks using the full, standalone question
+    retrieved_docs = retriever.invoke(search_question)
+
+    # Combine all retrieved chunks into one context string
+    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+
     # Run the chain — sends context + history + question to the LLM
     response = chain.invoke({
         "context": context,
-        "question": question,
+        "question": search_question,
         "chat_history": past_conversation
     })
 
@@ -224,7 +253,7 @@ st.markdown("""
 # ── Load the RAG pipeline ─────────────────────────────────────────────────────
 # Shows a spinner while setting up on first load
 with st.spinner("Loading the Finance Bill... (this takes about 30 seconds on first load)"):
-    retriever, chain = setup_rag()
+    retriever, chain, rewrite_chain = setup_rag()
 
 # ── Initialise chat history ───────────────────────────────────────────────────
 # session_state persists data across reruns (each time the user sends a message)
@@ -277,6 +306,7 @@ if question := st.chat_input("Ask a question about the Finance Bill 2025..."):
                 question,
                 retriever,
                 chain,
+                rewrite_chain,
                 st.session_state.messages[:-1]  # pass history excluding the current question
             )
         st.markdown(answer)
