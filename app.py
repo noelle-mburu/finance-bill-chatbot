@@ -267,9 +267,9 @@ if not st.session_state.messages:
         <div class="welcome-box">
             <p><strong>👋 Welcome!</strong> I can answer questions about the Kenya Finance Bill 2025.</p>
             <p>Try asking things like:</p>
-            <p>• <em>What is the digital service tax?</em></p>
             <p>• <em>What changes are proposed to income tax?</em></p>
-            <p>• <em>What amendments are made to the VAT Act?</em></p>
+            <p>• <em>Which taxes does the bill propose to amend?</em></p>
+            <p>• <em>What does the bill propose about stamp duty?</em></p>
         </div>
     """, unsafe_allow_html=True)
 
